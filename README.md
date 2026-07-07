@@ -1,35 +1,3 @@
-# yt-dlp GUI
-
-A lightweight desktop GUI for **yt-dlp** built with **Python** and **PySide6**. It provides a simple interface for downloading videos, playlists, audio, subtitles, and metadata without using the command line.
-
-## Features
-
-- Download videos from YouTube and hundreds of supported websites
-- Download playlists
-- Audio-only mode
-- Select video quality
-- Custom output directory
-- Download subtitles
-- View download logs
-- Simple and clean interface
-- Cross-platform (Windows, Linux)
-
----
-
-## Screenshots
-
-> Add screenshots here.
-
----
-
-## Requirements
-
-- Python 3.10 or newer
-- FFmpeg (recommended)
-- Internet connection
-
----
-
 ## Installation
 
 ### 1. Clone the repository
@@ -39,78 +7,54 @@ git clone https://github.com/adityaksx/yt-dlp-gui.git
 cd yt-dlp-gui
 ```
 
-### 2. Create a virtual environment (Recommended)
+### 2. Install dependencies
 
-Windows
-
-```powershell
-python -m venv .venv
-.venv\Scripts\activate
-```
-
-Linux
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-```
-
-### 3. Install dependencies
+If a `requirements.txt` file exists:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-If you don't have a requirements file yet:
+Otherwise install the required libraries manually:
 
 ```bash
 pip install PySide6 yt-dlp requests
 ```
 
-If your project uses additional libraries, install them as well.
-
 ---
 
-## Install FFmpeg
+## Install FFmpeg (Recommended)
 
-FFmpeg is recommended for:
+FFmpeg is required for:
 
-- Merging audio and video
-- Audio extraction
-- Higher quality downloads
-- Format conversion
+- Merging video and audio
+- Extracting audio
+- Converting formats
+- Downloading the highest available quality
 
 ### Windows
 
-Using Winget
+Install using Winget:
 
 ```powershell
 winget install Gyan.FFmpeg
 ```
 
-Or download manually from:
-
-https://ffmpeg.org/download.html
-
-Make sure FFmpeg is added to your PATH.
+Or download it from the official FFmpeg website and add it to your system PATH. :contentReference[oaicite:0]{index=0}
 
 ---
 
 ## Running the Application
 
-If your main file is:
-
-```text
-main.py
-```
-
-Run:
+If your main file is `main.py`:
 
 ```bash
 python main.py
 ```
 
-If your entry point is different:
+If your entry point has a different name, replace `main.py` with the appropriate filename.
+
+Example:
 
 ```bash
 python app.py
@@ -122,81 +66,24 @@ or
 python gui.py
 ```
 
-Replace the filename accordingly.
-
 ---
 
-## Project Structure
-
-```
-yt-dlp-gui/
-│
-├── assets/
-├── ui/
-├── downloads/
-├── main.py
-├── requirements.txt
-├── README.md
-└── LICENSE
-```
-
----
-
-## Building an Executable
-
-Install PyInstaller
-
-```bash
-pip install pyinstaller
-```
-
-Build
-
-```bash
-pyinstaller --onefile --windowed main.py
-```
-
-Executable will be inside:
-
-```
-dist/
-```
-
----
-
-## Dependencies
+## Required Libraries
 
 - PySide6
 - yt-dlp
 - requests
-- FFmpeg (external)
 
----
-
-## Updating yt-dlp
+Install them with:
 
 ```bash
-pip install -U yt-dlp
+pip install PySide6 yt-dlp requests
 ```
 
 ---
 
-## Contributing
+## Update yt-dlp
 
-Pull requests are welcome.
-
-For major changes, please open an issue first.
-
----
-
-## License
-
-MIT License
-
----
-
-## Credits
-
-- yt-dlp
-- PySide6
-- FFmpeg
+```bash
+pip install -U yt-dlp
+```
