@@ -7,7 +7,7 @@ BASE_DIR = os.path.expanduser("~")
 SETTINGS_FILE = os.path.join(BASE_DIR, ".ytdlp_modern_settings.json")
 HISTORY_FILE = os.path.join(BASE_DIR, ".ytdlp_modern_history.json")
 
-DEFAULT_PLAYER_CLIENTS = "android,web"
+DEFAULT_PLAYER_CLIENTS = ""
 DEFAULT_PROXY = ""
 DEFAULT_OUTPUT = os.path.expanduser("~/Downloads")
 
@@ -60,6 +60,7 @@ DEFAULT_SETTINGS = {
     "format": "Best MP4",
     "quality": "Best",
     "player_clients": DEFAULT_PLAYER_CLIENTS,
+    "po_token": "",
     "proxy": DEFAULT_PROXY,
     "embed_thumbnail": True,
     "embed_subtitles": False,

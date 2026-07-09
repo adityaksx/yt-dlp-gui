@@ -83,7 +83,7 @@ class AppController:
             audio_langs=self.gui.get_selected_audio_langs(),
             all_audio_langs=self.gui.all_audio_var.get(),
             sponsorblock=self.gui.sponsor_var.get(),
-            player_clients=self.settings.get("player_clients", "android,web"),
+            player_clients=self.settings.get("player_clients", ""),
             proxy=self.proxy_service.get_proxy(self.settings),
             source_type=source_type or detect_link_type(url),
             playlist_items=playlist_items,
@@ -106,7 +106,7 @@ class AppController:
     def _fetch_info_worker(self, url):
         try:
             self.ui.call(self.gui.set_status, "Fetching info…")
-            info = self.info_service.fetch(url, self.settings.get("player_clients", "android,web"), self.proxy_service.get_proxy(self.settings))
+            info = self.info_service.fetch(url, self.settings.get("player_clients", ""), self.proxy_service.get_proxy(self.settings))
             self.current_info = info
             self.ui.call(self.gui.update_info_box, info)
             self.ui.call(self.gui.set_detected_languages, info.audio_languages, info.subtitles_manual, info.subtitles_auto)
@@ -125,7 +125,7 @@ class AppController:
         text = "\n".join(error_lines)
         if "Requested format is not available" in text:
             self.logger.warn("Requested format failed. Fetching available formats...")
-            formats = self.info_service.list_formats(url, self.settings.get("player_clients", "android,web"), self.proxy_service.get_proxy(self.settings))
+            formats = self.info_service.list_formats(url, self.settings.get("player_clients", ""), self.proxy_service.get_proxy(self.settings))
             self.ui.call(self.gui.show_format_fallback, formats)
 
     def download_now(self):
@@ -220,6 +220,7 @@ class AppController:
         self.settings["quality"] = self.gui.settings_quality_var.get()
         self.settings["proxy"] = self.gui.settings_proxy_var.get().strip()
         self.settings["player_clients"] = self.gui.settings_player_clients_var.get().strip()
+        self.settings["po_token"] = self.gui.settings_po_token_var.get().strip()
         self.settings["concurrent_downloads"] = int(self.gui.settings_concurrent_var.get())
         self.settings["prefer_tor"] = self.gui.settings_tor_var.get()
         self.settings["speed_limit_kbps"] = int(self.gui.settings_speed_var.get() or 0)

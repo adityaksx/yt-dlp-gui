@@ -39,7 +39,7 @@ class InfoService:
             raw=data,
         )
 
-    def list_formats(self, url: str, player_clients: str, proxy: str = "") -> str:
+    def list_formats(self, url: str, player_clients: str = "", proxy: str = "") -> str:
         cmd = ["yt-dlp", "-F", "--no-warnings"]
         cmd += build_extractors(player_clients)
         if proxy:

@@ -1,9 +1,15 @@
 from config import QUALITY_MAP
 
 
-def build_extractors(player_clients: str):
-    clients = (player_clients or "android,web").strip() or "android,web"
-    return ["--extractor-args", f"youtube:player_client={clients};youtube:formats=missing_pot"]
+def build_extractors(player_clients: str = "", po_token: str = ""):
+    parts = []
+    if player_clients:
+        parts.append(f"youtube:player_client={player_clients}")
+    if po_token:
+        parts.append(f"youtube:po_token={po_token}")
+    if parts:
+        return ["--extractor-args", ";".join(parts)]
+    return []
 
 
 def is_audio_only(fmt: str):
@@ -55,7 +61,7 @@ def build_format_selector(fmt: str, quality: str, all_audio_langs: bool = False)
 
 def build_command(task, settings):
     cmd = ["yt-dlp"]
-    cmd += build_extractors(task.player_clients)
+    cmd += build_extractors(task.player_clients, settings.get("po_token", ""))
     cmd += ["--newline", "--no-warnings"]
     if task.proxy:
         cmd += ["--proxy", task.proxy]
