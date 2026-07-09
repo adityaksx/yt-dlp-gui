@@ -1,6 +1,5 @@
 import json
 import os
-import shutil
 from datetime import datetime
 
 
@@ -15,7 +14,7 @@ def load_json(path, default):
                 return merged
             return data
         except Exception:
-            pass
+            return default.copy() if isinstance(default, dict) else list(default)
     return default.copy() if isinstance(default, dict) else list(default)
 
 
@@ -24,23 +23,13 @@ def save_json(path, data):
         json.dump(data, f, indent=2)
 
 
-def add_history(history, path, url, title, status):
+def append_history(path, url, title, status):
+    history = load_json(path, [])
     history.append({
+        "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "url": url,
         "title": title,
         "status": status,
-        "time": datetime.now().strftime("%Y-%m-%d %H:%M"),
     })
-    history[:] = history[-300:]
+    history = history[-300:]
     save_json(path, history)
-
-
-def which(name):
-    return shutil.which(name)
-
-
-def safe_filename(name):
-    bad = '<>:"/\\|?*'
-    for ch in bad:
-        name = name.replace(ch, "_")
-    return name.strip() or "output"

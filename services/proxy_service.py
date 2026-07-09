@@ -1,9 +1,11 @@
 class ProxyService:
-    def tor_proxy(self):
-        return "socks5://127.0.0.1:9050"
+    def get_proxy(self, settings: dict):
+        proxy = settings.get("proxy", "") or ""
+        if proxy:
+            return proxy
+        if settings.get("prefer_tor"):
+            return "socks5://127.0.0.1:9050"
+        return ""
 
-    def custom_proxy(self, host: str, port: str, scheme: str = "http"):
-        return f"{scheme}://{host}:{port}"
-
-    def is_enabled(self, proxy_url: str) -> bool:
-        return bool((proxy_url or "").strip())
+    def label(self, proxy: str):
+        return f"🛡 Proxy: {proxy}" if proxy else "⚪ No Proxy"

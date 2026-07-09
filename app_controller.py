@@ -1,170 +1,219 @@
+import io
 import re
 import threading
 from tkinter import messagebox
 
-from config import DEFAULT_SETTINGS, SETTINGS_FILE, HISTORY_FILE, PROFILES_FILE
+from config import DEFAULT_SETTINGS, SETTINGS_FILE, HISTORY_FILE
 from models import DownloadTask
-from utils.file_utils import load_json, save_json, add_history
+from utils.file_utils import load_json, save_json, append_history
+from utils.log_utils import Logger
+from utils.thread_utils import UIThread, start_thread
+from utils.validators import split_urls, detect_link_type
 from utils.yt_dlp_builder import build_command
 from services.info_service import InfoService
+from services.playlist_service import PlaylistService
+from services.proxy_service import ProxyService
+from services.setup_service import SetupService
+from services.thumbnail_metadata import ThumbnailMetadataService
 from services.video_downloader import VideoDownloader
 from services.audio_downloader import AudioDownloader
 from services.subtitle_downloader import SubtitleDownloader
-from services.playlist_service import PlaylistService
+from services.combiner_service import CombinerService
 from services.queue_service import QueueService
-from services.setup_service import SetupService
-from services.proxy_service import ProxyService
+
+try:
+    from PIL import Image, ImageTk
+    HAS_PIL = True
+except Exception:
+    HAS_PIL = False
 
 
 class AppController:
     def __init__(self, root):
         self.root = root
+        self.ui = UIThread(root)
         self.settings = load_json(SETTINGS_FILE, DEFAULT_SETTINGS)
-        self.history = load_json(HISTORY_FILE, [])
-        self.profiles = load_json(PROFILES_FILE, {})
-        self.active_proxy = ""
+        self.logger = Logger(callback=self._emit_log)
         self.info_service = InfoService()
+        self.playlist_service = PlaylistService()
+        self.proxy_service = ProxyService()
+        self.setup_service = SetupService()
+        self.thumb_service = ThumbnailMetadataService()
         self.video_downloader = VideoDownloader()
         self.audio_downloader = AudioDownloader()
         self.subtitle_downloader = SubtitleDownloader()
-        self.playlist_service = PlaylistService()
-        self.setup_service = SetupService()
-        self.proxy_service = ProxyService()
+        self.combiner_service = CombinerService()
         self.gui = None
         self.queue_service = None
+        self.current_info = None
+        self.current_process_note = ""
 
     def bind_gui(self, gui):
         self.gui = gui
         self.queue_service = QueueService(self)
+        self.refresh_proxy_badge()
 
-    def ui(self, fn, *args, **kwargs):
-        self.root.after(0, lambda: fn(*args, **kwargs))
+    def _emit_log(self, line):
+        if self.gui:
+            self.ui.call(self.gui.append_log, line)
 
     def save_settings(self):
         save_json(SETTINGS_FILE, self.settings)
 
-    def log(self, text):
-        self.ui(self.gui.append_log, text)
+    def refresh_proxy_badge(self):
+        if self.gui:
+            proxy = self.proxy_service.get_proxy(self.settings)
+            self.ui.call(self.gui.set_proxy_text, self.proxy_service.label(proxy))
 
-    def make_task_from_gui(self, url):
+    def gather_task(self, url, source_type=None, playlist_items=None):
         return DownloadTask(
             url=url,
             format_name=self.gui.fmt_var.get(),
             quality=self.gui.qual_var.get(),
             output_dir=self.gui.folder_var.get(),
-            filename_template=self.gui.fname_var.get() or "%(title)s.%(ext)s",
-            subtitle_langs=self.settings.get("sub_langs", ["en"]),
-            sub_all=self.settings.get("sub_all", False),
-            sub_auto=self.settings.get("sub_auto", False),
-            sub_format=self.settings.get("sub_format", "srt"),
-            embed_thumbnail=self.gui.emb_thumb.get(),
-            embed_subtitles=self.gui.emb_subs.get(),
-            embed_metadata=self.settings.get("embed_metadata", True),
-            sponsorblock=self.settings.get("sponsorblock", False),
-            all_audio_langs=self.settings.get("all_audio_langs", False),
-            proxy_url=self.active_proxy,
+            filename_template=self.gui.fname_var.get(),
+            embed_thumbnail=self.gui.embed_thumb_var.get(),
+            embed_subtitles=self.gui.embed_subs_var.get(),
+            embed_metadata=self.gui.embed_meta_var.get(),
+            subtitle_langs=self.gui.get_selected_subtitle_langs(),
+            subtitle_format=self.gui.sub_fmt_var.get(),
+            subtitle_auto=self.gui.sub_auto_var.get(),
+            audio_langs=self.gui.get_selected_audio_langs(),
+            all_audio_langs=self.gui.all_audio_var.get(),
+            sponsorblock=self.gui.sponsor_var.get(),
             player_clients=self.settings.get("player_clients", "android,web"),
+            proxy=self.proxy_service.get_proxy(self.settings),
+            source_type=source_type or detect_link_type(url),
+            playlist_items=playlist_items,
         )
 
-    def fetch_info_clicked(self):
-        urls = self.gui.get_urls()
+    def pick_downloader(self, task):
+        if "Audio Only" in task.format_name:
+            return self.audio_downloader
+        if task.embed_subtitles and task.format_name == "Video Only":
+            return self.subtitle_downloader
+        return self.video_downloader
+
+    def fetch_info(self):
+        urls = split_urls(self.gui.url_text.get("1.0", "end"))
         if not urls:
             messagebox.showwarning("Fetch Info", "Enter a URL first.")
             return
-        threading.Thread(target=self._fetch_info_worker, args=(urls[0],), daemon=True).start()
+        start_thread(self._fetch_info_worker, urls[0])
 
     def _fetch_info_worker(self, url):
         try:
-            info = self.info_service.fetch_info(url, self.settings.get("player_clients", "android,web"), self.active_proxy)
-            text = (
-                f"{info.title}\n\n"
-                f"Duration: {info.duration}\n"
-                f"Uploader: {info.uploader}\n"
-                f"Views: {info.view_count:,}\n"
-                f"Likes: {info.like_count:,}\n"
-                f"Upload: {info.upload_date}\n"
-                f"Type: {'Playlist' if info.is_playlist else 'Video'}\n"
-                f"Audio languages: {', '.join(info.audio_languages) or '—'}\n"
-                f"Subtitle manual: {', '.join(info.subtitles.get('manual', [])) or '—'}\n"
-                f"Subtitle auto: {', '.join(info.subtitles.get('auto', [])) or '—'}"
-            )
-            self.ui(self.gui.set_info_text, text)
+            self.ui.call(self.gui.set_status, "Fetching info…")
+            info = self.info_service.fetch(url, self.settings.get("player_clients", "android,web"), self.proxy_service.get_proxy(self.settings))
+            self.current_info = info
+            self.ui.call(self.gui.update_info_box, info)
+            self.ui.call(self.gui.set_detected_languages, info.audio_languages, info.subtitles_manual, info.subtitles_auto)
+            self.ui.call(self.gui.set_status, "Info loaded")
+            if info.thumbnail and HAS_PIL:
+                data = self.thumb_service.fetch_thumbnail_bytes(info.thumbnail)
+                if data:
+                    img = Image.open(io.BytesIO(data)).resize((300, 170), Image.LANCZOS)
+                    photo = ImageTk.PhotoImage(img)
+                    self.ui.call(self.gui.set_thumbnail, photo)
         except Exception as e:
-            self.ui(self.gui.set_info_text, f"Error: {e}")
+            self.ui.call(self.gui.set_status, f"Error: {e}")
+            self.logger.error(str(e))
 
-    def start_download_clicked(self):
-        urls = self.gui.get_urls()
+    def download_now(self):
+        urls = split_urls(self.gui.url_text.get("1.0", "end"))
         if not urls:
             messagebox.showwarning("Download", "Enter a URL first.")
             return
-        threading.Thread(target=self._download_worker, args=(urls,), daemon=True).start()
+        start_thread(self._download_now_worker, urls)
 
-    def _download_worker(self, urls):
-        try:
-            for i, url in enumerate(urls, 1):
-                self.ui(self.gui.set_status, f"Downloading {i}/{len(urls)}…")
-                task = self.make_task_from_gui(url)
-                def on_line(line):
-                    self.log(line)
-                    m = re.search(r"\[download\]\s+([\d.]+)%", line)
-                    if m:
-                        self.ui(self.gui.prog_var.set, float(m.group(1)))
-                code = self.video_downloader.download(task, self.settings, on_line)
-                add_history(self.history, HISTORY_FILE, url, url, "✅ Done" if code == 0 else "❌ Failed")
-            self.ui(self.gui.set_status, "✅ All downloads finished")
-        except Exception as e:
-            self.ui(self.gui.set_status, f"❌ Error: {e}")
+    def _download_now_worker(self, urls):
+        total = len(urls)
+        for i, url in enumerate(urls, 1):
+            task = self.gather_task(url)
+            self.ui.call(self.gui.set_status, f"Downloading {i}/{total}")
+            def on_line(line):
+                self.logger.info(line)
+                m = re.search(r"\[download\]\s+([\d.]+)%.*?at\s+([^\s]+)", line)
+                if m:
+                    self.ui.call(self.gui.set_progress, float(m.group(1)))
+                    self.ui.call(self.gui.set_speed, m.group(2))
+            code, cmd = self.pick_downloader(task).run(task, self.settings, on_line)
+            self.current_process_note = " ".join(cmd)
+            append_history(HISTORY_FILE, url, getattr(self.current_info, 'title', url), "Done" if code == 0 else "Failed")
+        self.ui.call(self.gui.set_status, "Download complete")
 
-    def add_to_queue_clicked(self):
-        for url in self.gui.get_urls():
-            self.gui.q_tree.insert("", "end", values=(url, "Pending", self.gui.fmt_var.get(), "0%"))
+    def add_queue(self):
+        urls = split_urls(self.gui.url_text.get("1.0", "end"))
+        if not urls:
+            messagebox.showwarning("Queue", "Enter at least one URL.")
+            return
+        tasks = []
+        for url in urls:
+            task = self.gather_task(url)
+            tasks.append(task)
+            self.ui.call(self.gui.queue_add_row, task.url, "Pending", task.format_name, "0%", "")
+        self.queue_service.add_and_start(tasks)
+        self.ui.call(self.gui.set_status, f"Added {len(tasks)} item(s) to queue")
 
-    def preview_command_clicked(self):
-        urls = self.gui.get_urls()
+    def queue_status(self, url, status, progress, speed=""):
+        self.ui.call(self.gui.queue_update_row, url, status, progress, speed)
+
+    def queue_done(self, url, success):
+        self.ui.call(self.gui.queue_update_row, url, "Done" if success else "Failed", "100%" if success else "0%", "")
+        append_history(HISTORY_FILE, url, url, "Done" if success else "Failed")
+
+    def preview_command(self):
+        urls = split_urls(self.gui.url_text.get("1.0", "end"))
         if not urls:
             messagebox.showwarning("Preview", "Enter a URL first.")
             return
-        task = self.make_task_from_gui(urls[0])
+        task = self.gather_task(urls[0])
         cmd = build_command(task, self.settings)
-        messagebox.showinfo("Preview Command", " ".join(f'"{x}"' if " " in x else x for x in cmd))
+        self.current_process_note = " ".join(cmd)
+        messagebox.showinfo("Preview Command", self.current_process_note)
 
-    def load_playlist_clicked(self):
-        url = self.gui.pl_url_var.get().strip()
+    def load_playlist(self):
+        url = self.gui.playlist_url_var.get().strip()
         if not url:
             messagebox.showwarning("Playlist", "Enter playlist URL first.")
             return
-        threading.Thread(target=self._load_playlist_worker, args=(url,), daemon=True).start()
+        start_thread(self._load_playlist_worker, url)
 
     def _load_playlist_worker(self, url):
-        entries = self.playlist_service.load_playlist(url, self.active_proxy)
-        def apply():
-            for item in self.gui.playlist_tree.get_children():
-                self.gui.playlist_tree.delete(item)
-            for i, entry in enumerate(entries, 1):
-                self.gui.playlist_tree.insert("", "end", values=(i, entry.get("title", "Untitled"), entry.get("duration_string", "")))
-        self.ui(apply)
+        try:
+            self.ui.call(self.gui.set_playlist_status, "Loading playlist…")
+            items = self.playlist_service.load(url, self.proxy_service.get_proxy(self.settings))
+            self.ui.call(self.gui.populate_playlist, items)
+            self.ui.call(self.gui.set_playlist_status, f"Loaded {len(items)} items")
+        except Exception as e:
+            self.ui.call(self.gui.set_playlist_status, f"Error: {e}")
+            self.logger.error(str(e))
 
-    def check_tools_clicked(self):
-        threading.Thread(target=self._check_tools_worker, daemon=True).start()
+    def download_playlist_selected(self):
+        url = self.gui.playlist_url_var.get().strip()
+        selected = self.gui.get_selected_playlist_indices()
+        if not url or not selected:
+            messagebox.showwarning("Playlist", "Load a playlist and select items.")
+            return
+        task = self.gather_task(url, source_type="playlist", playlist_items=selected)
+        self.ui.call(self.gui.queue_add_row, task.url, "Pending", task.format_name, f"Items: {len(selected)}", "")
+        self.queue_service.add_and_start([task])
 
-    def _check_tools_worker(self):
-        results = self.setup_service.check_tools()
-        self.ui(self.gui.set_tools_result, results)
+    def apply_settings(self):
+        self.settings["save_folder"] = self.gui.settings_folder_var.get().strip() or self.settings["save_folder"]
+        self.settings["filename_template"] = self.gui.settings_name_var.get().strip() or self.settings["filename_template"]
+        self.settings["format"] = self.gui.settings_format_var.get()
+        self.settings["quality"] = self.gui.settings_quality_var.get()
+        self.settings["proxy"] = self.gui.settings_proxy_var.get().strip()
+        self.settings["player_clients"] = self.gui.settings_player_clients_var.get().strip()
+        self.settings["concurrent_downloads"] = int(self.gui.settings_concurrent_var.get())
+        self.settings["prefer_tor"] = self.gui.settings_tor_var.get()
+        self.settings["speed_limit_kbps"] = int(self.gui.settings_speed_var.get() or 0)
+        self.save_settings()
+        self.queue_service.reconfigure()
+        self.refresh_proxy_badge()
+        self.ui.call(self.gui.set_status, "Settings saved")
 
-    def update_queue_progress(self, url, progress):
-        for item in self.gui.q_tree.get_children():
-            values = self.gui.q_tree.item(item, "values")
-            if values and values[0] == url:
-                self.ui(self.gui.q_tree.set, item, "Progress", progress)
-                self.ui(self.gui.q_tree.set, item, "Status", "Downloading")
-                break
-
-    def complete_queue_task(self, url, success):
-        for item in self.gui.q_tree.get_children():
-            values = self.gui.q_tree.item(item, "values")
-            if values and values[0] == url:
-                self.ui(self.gui.q_tree.set, item, "Status", "✅ Done" if success else "❌ Failed")
-                if success:
-                    self.ui(self.gui.q_tree.set, item, "Progress", "100%")
-                break
-        add_history(self.history, HISTORY_FILE, url, url, "✅ Done" if success else "❌ Failed")
+    def check_tools(self):
+        results = self.setup_service.check()
+        self.ui.call(self.gui.show_setup, results, self.setup_service.install_text())

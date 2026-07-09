@@ -1,3 +1,3 @@
 class CombinerService:
-    def combine_note(self):
-        return "Use ffmpeg or yt-dlp postprocessors here for merge, subtitles, thumbnail, and metadata embedding."
+    def summary(self):
+        return "ffmpeg/yt-dlp post-processing is handled by command flags for mp4 merge, metadata, subtitles, and thumbnails."

@@ -1,39 +1,28 @@
 import re
-import threading
-from services.video_downloader import VideoDownloader
+from concurrent.futures import ThreadPoolExecutor
 
 
 class QueueService:
     def __init__(self, controller):
         self.controller = controller
-        self.max_concurrent = int(controller.settings.get("concurrent_dl", "2") or 2)
-        self.semaphore = threading.Semaphore(self.max_concurrent)
-        self.running = False
-        self.downloader = VideoDownloader()
+        self.executor = ThreadPoolExecutor(max_workers=int(controller.settings.get("concurrent_downloads", 2) or 2))
+        self.futures = []
+        self.paused = False
 
-    def update_concurrency(self, value: int):
-        self.max_concurrent = max(1, int(value))
-        self.semaphore = threading.Semaphore(self.max_concurrent)
-        self.controller.settings["concurrent_dl"] = str(self.max_concurrent)
-        self.controller.save_settings()
+    def reconfigure(self):
+        self.executor.shutdown(wait=False, cancel_futures=False)
+        self.executor = ThreadPoolExecutor(max_workers=int(self.controller.settings.get("concurrent_downloads", 2) or 2))
 
-    def run_tasks(self, tasks):
-        if self.running:
-            return
-        self.running = True
-        threads = [threading.Thread(target=self._run_one, args=(task,), daemon=True) for task in tasks]
-        for th in threads:
-            th.start()
-        for th in threads:
-            th.join()
-        self.running = False
+    def add_and_start(self, tasks):
+        for task in tasks:
+            self.futures.append(self.executor.submit(self._run_task, task))
 
-    def _run_one(self, task):
-        with self.semaphore:
-            def on_line(line):
-                self.controller.log(line)
-                match = re.search(r"\[download\]\s+([\d.]+)%", line)
-                if match:
-                    self.controller.update_queue_progress(task.url, f"{match.group(1)}%")
-            code = self.downloader.download(task, self.controller.settings, on_line)
-            self.controller.complete_queue_task(task.url, code == 0)
+    def _run_task(self, task):
+        self.controller.queue_status(task.url, "Downloading", "0%")
+        def on_line(line):
+            self.controller.log(line)
+            m = re.search(r"\[download\]\s+([\d.]+)%.*?at\s+([^\s]+)", line)
+            if m:
+                self.controller.queue_status(task.url, "Downloading", f"{m.group(1)}%", m.group(2))
+        code, _ = self.controller.pick_downloader(task).run(task, self.controller.settings, on_line)
+        self.controller.queue_done(task.url, code == 0)
