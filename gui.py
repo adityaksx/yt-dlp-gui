@@ -327,3 +327,7 @@ class ModernGUI:
         self.tool_badge.configure(text="Ready" if good else "Missing tools", fg=self.C["green"] if good else self.C["amber"])
         self.setup_box.delete("1.0", "end")
         self.setup_box.insert("1.0", install_text + "\nDetected:\n" + "\n".join(f"{k}: {'OK' if v else 'Missing'}" for k, v in results.items()))
+
+    def show_format_fallback(self, text):
+        self.info_box.delete("1.0", "end")
+        self.info_box.insert("1.0", "Requested format failed. Available formats:\n\n" + text)

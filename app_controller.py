@@ -1,6 +1,5 @@
 import io
 import re
-import threading
 from tkinter import messagebox
 
 from config import DEFAULT_SETTINGS, SETTINGS_FILE, HISTORY_FILE
@@ -56,6 +55,9 @@ class AppController:
     def _emit_log(self, line):
         if self.gui:
             self.ui.call(self.gui.append_log, line)
+
+    def log(self, line):
+        self.logger.info(line)
 
     def save_settings(self):
         save_json(SETTINGS_FILE, self.settings)
@@ -119,6 +121,13 @@ class AppController:
             self.ui.call(self.gui.set_status, f"Error: {e}")
             self.logger.error(str(e))
 
+    def _handle_download_failure(self, url, error_lines):
+        text = "\n".join(error_lines)
+        if "Requested format is not available" in text:
+            self.logger.warn("Requested format failed. Fetching available formats...")
+            formats = self.info_service.list_formats(url, self.settings.get("player_clients", "android,web"), self.proxy_service.get_proxy(self.settings))
+            self.ui.call(self.gui.show_format_fallback, formats)
+
     def download_now(self):
         urls = split_urls(self.gui.url_text.get("1.0", "end"))
         if not urls:
@@ -131,14 +140,19 @@ class AppController:
         for i, url in enumerate(urls, 1):
             task = self.gather_task(url)
             self.ui.call(self.gui.set_status, f"Downloading {i}/{total}")
+            errors = []
             def on_line(line):
                 self.logger.info(line)
+                if "ERROR:" in line:
+                    errors.append(line)
                 m = re.search(r"\[download\]\s+([\d.]+)%.*?at\s+([^\s]+)", line)
                 if m:
                     self.ui.call(self.gui.set_progress, float(m.group(1)))
                     self.ui.call(self.gui.set_speed, m.group(2))
             code, cmd = self.pick_downloader(task).run(task, self.settings, on_line)
             self.current_process_note = " ".join(cmd)
+            if code != 0:
+                self._handle_download_failure(url, errors)
             append_history(HISTORY_FILE, url, getattr(self.current_info, 'title', url), "Done" if code == 0 else "Failed")
         self.ui.call(self.gui.set_status, "Download complete")
 

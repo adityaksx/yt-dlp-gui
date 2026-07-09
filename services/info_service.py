@@ -13,7 +13,7 @@ class InfoService:
         if proxy:
             cmd += ["--proxy", proxy]
         cmd.append(url)
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
         if result.returncode != 0 or not result.stdout.strip():
             err = (result.stderr or "Failed to fetch info").strip()
             raise RuntimeError(err)
@@ -38,3 +38,12 @@ class InfoService:
             formats=data.get("formats") or [],
             raw=data,
         )
+
+    def list_formats(self, url: str, player_clients: str, proxy: str = "") -> str:
+        cmd = ["yt-dlp", "-F", "--no-warnings"]
+        cmd += build_extractors(player_clients)
+        if proxy:
+            cmd += ["--proxy", proxy]
+        cmd.append(url)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        return (result.stdout or result.stderr or "No format list available").strip()
